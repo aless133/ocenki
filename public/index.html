@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Оценки детей</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 64px auto; padding: 0 24px; color: #243247; background: #f5f7fa; }
+    h1 { margin-bottom: 8px; }
+    nav { margin-top: 28px; }
+    nav a { display: block; background: white; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 12px; color: #1d4ed8; text-decoration: none; overflow-wrap: anywhere; }
+    nav a:hover, nav a:focus-visible { border-color: #2563eb; background: #eff6ff; }
+    #status { line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>Оценки детей</h1>
+  <p id="description">Выберите, чьи оценки хотите посмотреть.</p>
+  <a id="back" href="/" hidden>← Все дети</a>
+  <nav id="children" aria-label="Дети" hidden></nav>
+  <p id="status" role="status">Загрузка списка…</p>
+  <script>
+    const list = document.querySelector('#children');
+    const status = document.querySelector('#status');
+
+    async function loadChildren() {
+      try {
+        const response = await fetch('/api/children');
+        if (!response.ok) throw new Error('Не удалось загрузить список. Проверьте файлы .env в private/children/ и обновите страницу.');
+        const children = await response.json();
+        if (location.pathname !== '/') {
+          document.querySelector('#back').hidden = false;
+          document.querySelector('#description').hidden = true;
+          const child = children.find((item) => `/${item.id}` === location.pathname);
+          if (!child) throw new Error('Ребёнок не найден.');
+          document.querySelector('h1').textContent = `Оценки: ${child.alias}`;
+          document.title = `Оценки: ${child.alias}`;
+          status.textContent = 'Оценки пока недоступны.';
+          return;
+        }
+        if (children.length === 0) {
+          status.textContent = 'Список пока пуст. Добавьте файл .env для каждого ребёнка в private/children/ и обновите страницу.';
+          return;
+        }
+        for (const child of children) {
+          const link = document.createElement('a');
+          link.href = `/${encodeURIComponent(child.id)}`;
+          link.textContent = child.alias;
+          list.append(link);
+        }
+        list.hidden = false;
+        status.textContent = '';
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    loadChildren();
+  </script>
+</body>
+</html>
