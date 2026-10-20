@@ -25,7 +25,7 @@ app.use((request, response, next) => {
     response.status(405).type('text').send('Метод не поддерживается.');
     return;
   }
-  if (request.method === 'POST' && request.get('origin') !== `http://${host}:${port}`) {
+  if (request.method === 'POST' && request.get('origin') !== `http://${host}:${request.socket.localPort}`) {
     response.status(403).json({ error: 'Запускайте вход из локального приложения.' });
     return;
   }

@@ -18,6 +18,14 @@ async function loginStudent({ page, child, onProgress }) {
   page.setDefaultNavigationTimeout(45000);
   onProgress('opening', 'Ждите: открываем электронную школу…');
   await page.goto(child.server, { waitUntil: 'domcontentloaded' });
+  // A new tab shares this browser's authorized student session.
+  await page.waitForFunction((studentLink) =>
+    document.querySelector(studentLink)?.getClientRects().length ||
+    document.querySelector('table th[id="subject"]')?.getClientRects().length,
+  { polling: 100 }, STUDENT_LINK);
+  if (await page.$('table th[id="subject"]')) {
+    return { state: 'returned', message: 'Используем открытый кабинет ученика.' };
+  }
   await page.waitForSelector(STUDENT_LINK, { visible: true });
   onProgress('student', 'Ждите: выбираем вход «Обучающийся»…');
 
@@ -69,7 +77,7 @@ async function loginStudent({ page, child, onProgress }) {
   }
   return {
     state: 'returned',
-    message: 'Сайт завершил перенаправление после входа. Вкладка открыта; получение оценок ещё не подключено.',
+    message: 'Вход выполнен. Начинаем сбор отметок и пропусков.',
   };
 }
 

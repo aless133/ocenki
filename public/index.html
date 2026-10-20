@@ -9,13 +9,30 @@
 <body class="bg-body-tertiary">
   <main class="container py-5">
     <div class="row justify-content-center">
-      <section class="col-12 col-md-8 col-lg-6" aria-labelledby="title">
+      <section class="col-12 col-xl-11" aria-labelledby="title">
         <h1 id="title" class="mb-2">Оценки детей</h1>
         <p id="description" class="text-body-secondary">Выберите, чьи оценки хотите посмотреть.</p>
         <a id="back" class="btn btn-outline-secondary mt-3 d-none" href="/">← Все дети</a>
         <nav id="children" class="list-group mt-4 d-none" aria-label="Дети"></nav>
         <p id="status" class="alert alert-info mt-4" role="status">Загрузка списка…</p>
         <button id="retry" class="btn btn-primary d-none" type="button">Повторить вход</button>
+        <section id="report" class="mt-4 d-none" aria-labelledby="report-title">
+          <h2 id="report-title" class="h4">Отметки по предметам</h2>
+          <p id="report-period" class="text-body-secondary"></p>
+          <div class="table-responsive bg-white border rounded">
+            <table class="table table-striped align-middle mb-0">
+              <caption class="px-3">Н — пропуск урока. В сумму, количество оценок и средний балл входят только числовые отметки.</caption>
+              <thead><tr>
+                <th scope="col">Предмет</th><th scope="col" style="min-width: 260px">Все отметки</th>
+                <th scope="col" class="text-end">Сумма оценок</th><th scope="col" class="text-end">Число оценок</th>
+                <th scope="col" class="text-end">Средняя оценка</th><th scope="col" class="text-end">Пропуски (Н)</th>
+              </tr></thead>
+              <tbody id="report-rows"></tbody>
+              <tfoot id="report-totals"></tfoot>
+            </table>
+          </div>
+          <p id="report-notice" class="text-body-secondary small mt-2"></p>
+        </section>
       </section>
     </div>
   </main>
@@ -25,9 +42,60 @@
     const retry = document.querySelector('#retry');
     let childId;
     let polling;
+    const formatDate = iso => iso.split('-').reverse().join('.');
+
+    function renderReport(report) {
+      const rows = document.querySelector('#report-rows');
+      rows.replaceChildren();
+      let unknown = 0;
+      for (const subject of report.subjects) {
+        const row = document.createElement('tr');
+        const name = document.createElement('th');
+        name.scope = 'row';
+        name.textContent = subject.subject;
+        const marks = document.createElement('td');
+        const wrap = document.createElement('div');
+        wrap.className = 'd-flex flex-wrap gap-1';
+        for (const event of subject.events) {
+          const badge = document.createElement('span');
+          badge.className = `badge ${event.type === 'absence' ? 'text-bg-warning' : 'text-bg-light border'}`;
+          badge.textContent = event.label;
+          badge.title = `${formatDate(event.date)}, урок ${event.lesson}${event.time ? `, ${event.time}` : ''}`;
+          wrap.append(badge);
+          if (event.type === 'other') unknown++;
+        }
+        if (!subject.events.length) wrap.textContent = '—';
+        marks.append(wrap);
+        row.append(name, marks);
+        for (const value of [subject.sum, subject.count,
+          subject.average === null ? '—' : subject.average.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), subject.absences]) {
+          const cell = document.createElement('td');
+          cell.className = 'text-end';
+          cell.textContent = value;
+          row.append(cell);
+        }
+        rows.append(row);
+      }
+      const totals = document.querySelector('#report-totals');
+      totals.replaceChildren();
+      const total = document.createElement('tr');
+      for (const [index, value] of ['Всего', '', report.totals.sum, report.totals.count, '—', report.totals.absences].entries()) {
+        const cell = document.createElement(index === 0 ? 'th' : 'td');
+        if (index === 0) cell.scope = 'row';
+        else cell.className = 'text-end fw-semibold';
+        cell.textContent = value;
+        total.append(cell);
+      }
+      totals.append(total);
+      const collected = new Date(report.collectedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+      document.querySelector('#report-period').textContent = `${formatDate(report.period.from)} — ${formatDate(report.period.to)}. Собрано: ${collected} (МСК).`;
+      document.querySelector('#report-notice').textContent = unknown
+        ? `Других обозначений: ${unknown}. Они сохранены в списке, но не входят в расчёт оценок.` : '';
+      document.querySelector('#report').classList.remove('d-none');
+    }
 
     function showSession(session) {
-      const busy = ['opening', 'student', 'login'].includes(session.state);
+      const busy = ['opening', 'student', 'login', 'collecting'].includes(session.state);
       status.className = `alert mt-4 ${session.state === 'error' ? 'alert-danger' : 'alert-info'}`;
       status.replaceChildren();
       status.setAttribute('aria-busy', String(busy));
@@ -38,7 +106,9 @@
         status.append(spinner);
       }
       status.append(document.createTextNode(session.message));
-      retry.classList.toggle('d-none', session.state !== 'error');
+      retry.classList.toggle('d-none', !['error', 'complete'].includes(session.state));
+      retry.textContent = session.state === 'complete' ? 'Обновить данные' : 'Повторить вход';
+      if (session.report) renderReport(session.report);
       if (busy) polling = setTimeout(pollSession, 1000);
     }
 
@@ -80,6 +150,8 @@
           document.querySelector('h1').textContent = `Оценки: ${child.alias}`;
           document.title = `Оценки: ${child.alias}`;
           childId = child.id;
+          const saved = await fetch(`/${encodeURIComponent(childId)}/report`);
+          if (saved.ok) renderReport(await saved.json());
           await startSession();
           return;
         }

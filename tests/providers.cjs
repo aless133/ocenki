@@ -49,11 +49,12 @@ const { createProviderSessions } = require('../providers');
       assert.equal(page.isClosed(), false);
       await page.close();
     }
+    await require('./diary.cjs')(context);
     let pageCount = 0;
-    const sessions = createProviderSessions(() => ({ connected: true, newPage: async () => {
+    const sessions = createProviderSessions(() => ({ connected: true, createBrowserContext: async () => ({ newPage: async () => {
       pageCount++;
       return { isClosed: () => false, bringToFront: async () => {}, setDefaultTimeout: () => {}, setDefaultNavigationTimeout: () => {}, goto: async () => { throw new Error('net::ERR_TIMED_OUT secret'); } };
-    } }));
+    } }) }));
     const child = { id: 'test', provider: 'e-schools', server: 'https://diary.e-schools.by', password: 'SECRET' };
     await Promise.all([sessions.start(child), sessions.start(child)]);
     await new Promise(resolve => setImmediate(resolve));
@@ -65,7 +66,7 @@ const { createProviderSessions } = require('../providers');
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(pageCount, 1);
     assert.equal(JSON.stringify(sessions.status('test')).includes('secret'), false);
-    console.log('PASS: student-only visible login, rejected credentials, return redirect, tab retention, deduplication, explicit retry and sanitized errors');
+    console.log('PASS: student login, week navigation and loading, date boundaries, multiple grades, absences, summary arithmetic, tab retention, deduplication, explicit retry and sanitized errors');
   } finally {
     await context.close();
     await browser.close();

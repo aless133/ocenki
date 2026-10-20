@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('node:path');
 const { readChildren } = require('../children');
+const { readReport } = require('../reports');
 
 const router = express.Router({ mergeParams: true });
 
@@ -23,6 +24,12 @@ router.get('/', (request, response) => {
 
 router.get('/session', (request, response) => {
   response.json(request.app.locals.providerSessions.status(response.locals.child.id));
+});
+
+router.get('/report', async (request, response) => {
+  const report = await readReport(response.locals.child.id);
+  if (!report) return response.status(404).json({ error: 'Отчёт ещё не собран.' });
+  response.json(report);
 });
 
 router.post('/session', async (request, response) => {

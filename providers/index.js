@@ -1,6 +1,13 @@
 const { loginStudent } = require('./e-schools');
+const { collectDiary } = require('./e-schools-diary');
+const { saveReport } = require('../reports');
 
-const providers = new Map([['e-schools', loginStudent]]);
+const providers = new Map([['e-schools', async context => {
+  await loginStudent(context);
+  const report = await collectDiary(context);
+  await saveReport(context.child.id, report);
+  return { state: 'complete', message: 'Отметки и пропуски собраны. Вкладка дневника остаётся открытой.', report };
+}]]);
 const messages = {
   INVALID_CREDENTIALS: 'Неверное имя пользователя или пароль. Проверьте LOGIN и PASSWORD ученика в локальном файле и нажмите «Повторить вход».',
   INVALID_PROVIDER_SERVER: 'Для провайдера e-schools укажите SERVER=https://diary.e-schools.by.',
@@ -8,6 +15,8 @@ const messages = {
   LOGIN_REJECTED: 'Сайт отклонил вход. Проверьте сообщение во вкладке провайдера.',
   UNSUPPORTED_PROVIDER: 'Обработчик этого провайдера пока не подключён.',
   BROWSER_UNAVAILABLE: 'Браузер Puppeteer недоступен. Перезапустите локальный сервер.',
+  DIARY_FORMAT_CHANGED: 'Структура таблицы дневника изменилась. Не удалось собрать полный отчёт.',
+  DIARY_NAVIGATION_FAILED: 'Не удалось последовательно пролистать дневник. Полный отчёт не сформирован.',
 };
 
 function createProviderSessions(getBrowser) {
@@ -33,13 +42,20 @@ function createProviderSessions(getBrowser) {
 
   async function run(session, child) {
     try {
-      const login = providers.get(child.provider);
-      if (!login) throw new Error('UNSUPPORTED_PROVIDER');
+      const collect = providers.get(child.provider);
+      if (!collect) throw new Error('UNSUPPORTED_PROVIDER');
       const browser = getBrowser();
       if (!browser?.connected) throw new Error('BROWSER_UNAVAILABLE');
-      if (!session.page || session.page.isClosed()) session.page = await browser.newPage();
+      const account = JSON.stringify([child.provider, child.server, child.login]);
+      if (!session.context || session.account !== account) {
+        // Children must not share an authenticated diary through browser cookies.
+        session.context = await browser.createBrowserContext();
+        session.account = account;
+        session.page = undefined;
+      }
+      if (!session.page || session.page.isClosed()) session.page = await session.context.newPage();
       await session.page.bringToFront();
-      session.public = await login({
+      session.public = await collect({
         page: session.page,
         child,
         onProgress: (state, message) => { session.public = { state, message }; },
@@ -60,7 +76,7 @@ function createProviderSessions(getBrowser) {
 
   async function retry(child) {
     const session = sessions.get(child.id);
-    if (session && session.public.state !== 'error') return start(child);
+    if (session && !['error', 'complete'].includes(session.public.state)) return start(child);
     // Reuse the error tab and re-read credentials through the route on every retry.
     sessions.delete(child.id);
     if (!session?.page || session.page.isClosed()) return start(child);
