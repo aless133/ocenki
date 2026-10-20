@@ -1,4 +1,5 @@
 const { todayInMoscow, parseDiaryDate, summarizeLessons } = require('./grades');
+const { waitForVisible, clickVisible } = require('./browser');
 
 // Observed toolbar: today (calendar icon), previous week, next week.
 // React IDs change after every click, so locate the buttons by their relationship.
@@ -46,8 +47,7 @@ async function readWeek(page) {
 }
 
 async function changeWeek(page, week, direction) {
-  await page.waitForSelector(direction === 'previous' ? PREVIOUS : NEXT, { visible: true });
-  await page.locator(direction === 'previous' ? PREVIOUS : NEXT).click();
+  await clickVisible(page, direction === 'previous' ? PREVIOUS : NEXT);
   await waitForWeek(page, week.days[0].heading);
   const next = await readWeek(page);
   const delta = (Date.parse(next.firstDate) - Date.parse(week.firstDate)) / 86400000;
@@ -56,8 +56,8 @@ async function changeWeek(page, week, direction) {
 }
 
 async function collectDiary({ page, onProgress = () => {}, to = todayInMoscow(), from = null }) {
-  await page.waitForSelector('a[href="#/diary"]', { visible: true });
-  if (new URL(page.url()).hash !== '#/diary') await page.click('a[href="#/diary"]');
+  await waitForVisible(page, 'a[href="#/diary"]');
+  if (new URL(page.url()).hash !== '#/diary') await clickVisible(page, 'a[href="#/diary"]');
   onProgress('collecting', 'Ждите: ищем начало учебного года…');
   await waitForWeek(page);
   let week = await readWeek(page);

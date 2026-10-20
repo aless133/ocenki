@@ -1,4 +1,4 @@
-const { loginStudent } = require('./e-schools');
+const { loginStudent, resetStudentSession } = require('./e-schools');
 const { collectDiary } = require('./e-schools-diary');
 const { saveReport } = require('../reports');
 
@@ -21,6 +21,13 @@ const messages = {
 
 function createProviderSessions(getBrowser) {
   const sessions = new Map();
+  let queue = Promise.resolve();
+  let activeAccount;
+
+  function enqueue(session, child) {
+    session.public = { state: 'queued', message: 'Ждите: готовим сбор данных ученика…' };
+    queue = queue.then(() => run(session, child));
+  }
 
   function status(childId) {
     return sessions.get(childId)?.public ?? { state: 'idle', message: 'Вход ещё не запущен.' };
@@ -31,36 +38,42 @@ function createProviderSessions(getBrowser) {
     // Coalesce double clicks and browser refreshes, including rejected credentials.
     // Retrying requires an explicit request, so a refresh cannot lock an account.
     if (existing) {
-      if (existing.page && !existing.page.isClosed()) await existing.page.bringToFront().catch(() => {});
       return status(child.id);
     }
     const session = { public: { state: 'opening', message: 'Ждите: открываем сайт ученика…' } };
     sessions.set(child.id, session);
-    void run(session, child);
+    enqueue(session, child);
     return session.public;
   }
 
   async function run(session, child) {
+    let interaction;
     try {
       const collect = providers.get(child.provider);
       if (!collect) throw new Error('UNSUPPORTED_PROVIDER');
       const browser = getBrowser();
       if (!browser?.connected) throw new Error('BROWSER_UNAVAILABLE');
       const account = JSON.stringify([child.provider, child.server, child.login]);
-      if (!session.context || session.account !== account) {
-        // Children must not share an authenticated diary through browser cookies.
-        session.context = await browser.createBrowserContext();
+      if (!session.page || session.page.isClosed() || session.account !== account) {
+        session.page = await browser.newPage({ type: 'tab', background: true });
         session.account = account;
-        session.page = undefined;
       }
-      if (!session.page || session.page.isClosed()) session.page = await session.context.newPage();
-      await session.page.bringToFront();
+      if (activeAccount !== account) {
+        activeAccount = undefined;
+        await resetStudentSession(session.page);
+        activeAccount = account;
+      }
+      // Give CDP mouse input a live render surface without selecting the tab.
+      // Chrome otherwise suspends frame/viewport observers in background tabs.
+      interaction = await session.page.createCDPSession();
+      await interaction.send('Emulation.setFocusEmulationEnabled', { enabled: true });
       session.public = await collect({
         page: session.page,
         child,
         onProgress: (state, message) => { session.public = { state, message }; },
       });
     } catch (error) {
+      activeAccount = undefined;
       const code = messages[error.code ?? error.message] ? (error.code ?? error.message)
         : error.name === 'TimeoutError' || error.message?.startsWith('net::') ? 'NETWORK_ERROR' : 'PROVIDER_ERROR';
       session.public = {
@@ -70,6 +83,11 @@ function createProviderSessions(getBrowser) {
           : 'Не удалось выполнить вход. Проверьте открытую вкладку провайдера.'),
       };
       // Never log raw browser errors: URLs may contain OAuth codes and form data.
+    } finally {
+      if (interaction) {
+        await interaction.send('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => {});
+        await interaction.detach().catch(() => {});
+      }
     }
     // Keep the provider tab open on both success and failure.
   }
@@ -82,7 +100,7 @@ function createProviderSessions(getBrowser) {
     if (!session?.page || session.page.isClosed()) return start(child);
     session.public = { state: 'opening', message: 'Ждите: повторяем вход ученика…' };
     sessions.set(child.id, session);
-    void run(session, child);
+    enqueue(session, child);
     return session.public;
   }
 

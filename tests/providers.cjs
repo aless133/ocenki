@@ -50,11 +50,13 @@ const { createProviderSessions } = require('../providers');
       await page.close();
     }
     await require('./diary.cjs')(context);
+    await require('./interface.cjs')(context);
     let pageCount = 0;
-    const sessions = createProviderSessions(() => ({ connected: true, createBrowserContext: async () => ({ newPage: async () => {
+    const sessions = createProviderSessions(() => ({ connected: true, newPage: async options => {
+      assert.deepEqual(options, { type: 'tab', background: true });
       pageCount++;
-      return { isClosed: () => false, bringToFront: async () => {}, setDefaultTimeout: () => {}, setDefaultNavigationTimeout: () => {}, goto: async () => { throw new Error('net::ERR_TIMED_OUT secret'); } };
-    } }) }));
+      return { isClosed: () => false, createCDPSession: async () => ({ send: async () => {}, detach: async () => {} }), setDefaultTimeout: () => {}, setDefaultNavigationTimeout: () => {}, goto: async () => { throw new Error('net::ERR_TIMED_OUT secret'); } };
+    } }));
     const child = { id: 'test', provider: 'e-schools', server: 'https://diary.e-schools.by', password: 'SECRET' };
     await Promise.all([sessions.start(child), sessions.start(child)]);
     await new Promise(resolve => setImmediate(resolve));

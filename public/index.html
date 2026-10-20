@@ -95,7 +95,7 @@
     }
 
     function showSession(session) {
-      const busy = ['opening', 'student', 'login', 'collecting'].includes(session.state);
+      const busy = ['queued', 'opening', 'student', 'login', 'collecting'].includes(session.state);
       status.className = `alert mt-4 ${session.state === 'error' ? 'alert-danger' : 'alert-info'}`;
       status.replaceChildren();
       status.setAttribute('aria-busy', String(busy));
@@ -127,6 +127,11 @@
       catch (error) { showError(error.message); }
     }
 
+    async function pollSessionIfRunning() {
+      const session = await sessionRequest('');
+      if (['queued', 'opening', 'student', 'login', 'collecting'].includes(session.state)) showSession(session);
+    }
+
     async function startSession(isRetry = false) {
       clearTimeout(polling);
       showSession({ state: 'opening', message: 'Ждите: открываем сайт ученика в новой вкладке…' });
@@ -151,8 +156,15 @@
           document.title = `Оценки: ${child.alias}`;
           childId = child.id;
           const saved = await fetch(`/${encodeURIComponent(childId)}/report`);
-          if (saved.ok) renderReport(await saved.json());
-          await startSession();
+          if (saved.ok) {
+            showSession({ state: 'complete', message: 'Показан сохранённый отчёт. Обновление запускается кнопкой «Обновить данные».', report: await saved.json() });
+            // Observe an already running job without starting another collection.
+            await pollSessionIfRunning();
+          } else if (saved.status === 404) {
+            await startSession();
+          } else {
+            throw new Error('Не удалось прочитать сохранённый отчёт. Обновите страницу.');
+          }
           return;
         }
         if (children.length === 0) {
