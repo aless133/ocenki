@@ -15,12 +15,57 @@
         <a id="back" class="btn btn-outline-secondary mt-3 d-none" href="/">← Все дети</a>
         <nav id="children" class="list-group mt-4 d-none" aria-label="Дети"></nav>
         <p id="status" class="alert alert-info mt-4" role="status">Загрузка списка…</p>
+        <button id="retry" class="btn btn-primary d-none" type="button">Повторить вход</button>
       </section>
     </div>
   </main>
   <script>
     const list = document.querySelector('#children');
     const status = document.querySelector('#status');
+    const retry = document.querySelector('#retry');
+    let childId;
+    let polling;
+
+    function showSession(session) {
+      const busy = ['opening', 'student', 'login'].includes(session.state);
+      status.className = `alert mt-4 ${session.state === 'error' ? 'alert-danger' : 'alert-info'}`;
+      status.replaceChildren();
+      status.setAttribute('aria-busy', String(busy));
+      if (busy) {
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm me-2';
+        spinner.setAttribute('aria-hidden', 'true');
+        status.append(spinner);
+      }
+      status.append(document.createTextNode(session.message));
+      retry.classList.toggle('d-none', session.state !== 'error');
+      if (busy) polling = setTimeout(pollSession, 1000);
+    }
+
+    function showError(message) {
+      showSession({ state: 'error', message });
+    }
+
+    async function sessionRequest(path, method = 'GET') {
+      const response = await fetch(`/${encodeURIComponent(childId)}/session${path}`, { method });
+      if (!response.ok) throw new Error('Не удалось связаться с локальным сервером. Обновите страницу.');
+      return response.json();
+    }
+
+    async function pollSession() {
+      try { showSession(await sessionRequest('')); }
+      catch (error) { showError(error.message); }
+    }
+
+    async function startSession(isRetry = false) {
+      clearTimeout(polling);
+      showSession({ state: 'opening', message: 'Ждите: открываем сайт ученика в новой вкладке…' });
+      clearTimeout(polling);
+      try { showSession(await sessionRequest(isRetry ? '/retry' : '', 'POST')); }
+      catch (error) { showError(error.message); }
+    }
+
+    retry.addEventListener('click', () => startSession(true));
 
     async function loadChildren() {
       try {
@@ -34,7 +79,8 @@
           if (!child) throw new Error('Ребёнок не найден.');
           document.querySelector('h1').textContent = `Оценки: ${child.alias}`;
           document.title = `Оценки: ${child.alias}`;
-          status.textContent = 'Оценки пока недоступны.';
+          childId = child.id;
+          await startSession();
           return;
         }
         if (children.length === 0) {

@@ -4,12 +4,15 @@ const path = require('node:path');
 const { once } = require('node:events');
 const { initializeStorage, listChildren } = require('./children');
 const childRoutes = require('./routes/children');
+const { createProviderSessions } = require('./providers');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 
 const host = '127.0.0.1';
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
+let browser;
+app.locals.providerSessions = createProviderSessions(() => browser);
 app.disable('x-powered-by');
 app.set('case sensitive routing', true);
 
@@ -17,9 +20,13 @@ app.use((request, response, next) => {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (request.method !== 'GET') {
-    response.setHeader('Allow', 'GET');
+  if (!['GET', 'POST'].includes(request.method)) {
+    response.setHeader('Allow', 'GET, POST');
     response.status(405).type('text').send('Метод не поддерживается.');
+    return;
+  }
+  if (request.method === 'POST' && request.get('origin') !== `http://${host}:${port}`) {
+    response.status(403).json({ error: 'Запускайте вход из локального приложения.' });
     return;
   }
   next();
@@ -66,7 +73,6 @@ async function start() {
   const url = `http://${host}:${port}`;
   console.log(`Локальный сервер: ${url}`);
 
-  let browser;
   try {
     const { default: puppeteer } = await import('puppeteer');
     browser = await puppeteer.launch({
