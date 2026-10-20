@@ -28,6 +28,9 @@ const server = http.createServer(async (request, response) => {
     if (pathname === '/') {
       const html = await readFile(path.join(__dirname, 'public', 'index.html'), 'utf8');
       send(200, 'text/html', html);
+    } else if (pathname === '/assets/bootstrap.min.css') {
+      const css = await readFile(require.resolve('bootstrap/dist/css/bootstrap.min.css'), 'utf8');
+      send(200, 'text/css', css);
     } else if (pathname === '/api/children') {
       send(200, 'application/json', JSON.stringify(await listChildren()));
     } else if (/^\/[a-zA-Z0-9_-]+$/.test(pathname)
@@ -56,7 +59,11 @@ async function start() {
   let browser;
   try {
     const { default: puppeteer } = await import('puppeteer');
-    browser = await puppeteer.launch({ headless: false });
+    browser = await puppeteer.launch({
+      headless: false,
+      defaultViewport: null,
+      args: ['--start-maximized'],
+    });
     const [page] = await browser.pages();
     await (page ?? await browser.newPage()).goto(url, { waitUntil: 'networkidle0' });
   } catch {
