@@ -1,50 +1,60 @@
 const http = require('node:http');
+const express = require('express');
 const path = require('node:path');
-const { readFile } = require('node:fs/promises');
 const { once } = require('node:events');
 const { initializeStorage, listChildren } = require('./children');
+const childRoutes = require('./routes/children');
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 
 const host = '127.0.0.1';
 const port = Number(process.env.PORT ?? 3000);
 
-const server = http.createServer(async (request, response) => {
+const app = express();
+app.disable('x-powered-by');
+app.set('case sensitive routing', true);
+
+app.use((request, response, next) => {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
 
-  function send(status, type, body) {
-    response.writeHead(status, { 'Content-Type': `${type}; charset=utf-8` });
-    response.end(body);
-  }
-
   if (request.method !== 'GET') {
     response.setHeader('Allow', 'GET');
-    send(405, 'text/plain', 'Метод не поддерживается.');
+    response.status(405).type('text').send('Метод не поддерживается.');
     return;
   }
-
-  const pathname = request.url.split('?')[0];
-  try {
-    if (pathname === '/') {
-      const html = await readFile(path.join(__dirname, 'public', 'index.html'), 'utf8');
-      send(200, 'text/html', html);
-    } else if (pathname === '/assets/bootstrap.min.css') {
-      const css = await readFile(require.resolve('bootstrap/dist/css/bootstrap.min.css'), 'utf8');
-      send(200, 'text/css', css);
-    } else if (pathname === '/api/children') {
-      send(200, 'application/json', JSON.stringify(await listChildren()));
-    } else if (/^\/[a-zA-Z0-9_-]+$/.test(pathname)
-      && (await listChildren()).some((child) => `/${child.id}` === pathname)) {
-      const html = await readFile(path.join(__dirname, 'public', 'index.html'), 'utf8');
-      send(200, 'text/html', html);
-    } else {
-      send(404, 'text/plain', 'Страница не найдена.');
-    }
-  } catch {
-    // Do not expose file contents or credentials to the browser.
-    send(500, 'application/json', JSON.stringify({ error: 'Не удалось загрузить данные. Проверьте файлы .env в private/children/.' }));
-  }
+  next();
 });
+
+app.get('/', (request, response) => {
+  response.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/assets/bootstrap.min.css', (request, response) => {
+  response.sendFile(require.resolve('bootstrap/dist/css/bootstrap.min.css'));
+});
+
+app.get('/api/children', async (request, response) => {
+  response.json(await listChildren());
+});
+
+app.use('/:childId', childRoutes);
+
+app.use((request, response) => {
+  response.status(404).type('text').send('Страница не найдена.');
+});
+
+app.use((error, request, response, next) => {
+  if (response.headersSent) return next(error);
+  // Do not expose file contents or credentials to the browser.
+  const status = error.status === 400 ? 400 : 500;
+  response.status(status).json({
+    error: status === 400
+      ? 'Некорректный адрес запроса.'
+      : 'Не удалось загрузить данные. Проверьте файлы .env в private/children/.',
+  });
+});
+
+const server = http.createServer(app);
 
 async function start() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -100,4 +110,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, start };
+module.exports = { app, server, start };

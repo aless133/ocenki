@@ -30,7 +30,7 @@
         if (location.pathname !== '/') {
           document.querySelector('#back').classList.remove('d-none');
           document.querySelector('#description').hidden = true;
-          const child = children.find((item) => `/${item.id}` === location.pathname);
+          const child = children.find((item) => `/${item.id}` === location.pathname.replace(/\/+$/, ''));
           if (!child) throw new Error('Ребёнок не найден.');
           document.querySelector('h1').textContent = `Оценки: ${child.alias}`;
           document.title = `Оценки: ${child.alias}`;
