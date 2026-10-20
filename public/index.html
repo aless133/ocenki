@@ -44,6 +44,13 @@
     let polling;
     const formatDate = iso => iso.split('-').reverse().join('.');
 
+    function gradeColor(value) {
+      if (value < 4) return 'danger';
+      if (value < 6) return 'warning';
+      if (value < 8) return 'info';
+      return 'success';
+    }
+
     function renderReport(report) {
       const rows = document.querySelector('#report-rows');
       rows.replaceChildren();
@@ -58,7 +65,8 @@
         wrap.className = 'd-flex flex-wrap gap-1';
         for (const event of subject.events) {
           const badge = document.createElement('span');
-          badge.className = `badge ${event.type === 'absence' ? 'text-bg-warning' : 'text-bg-light border'}`;
+          badge.className = `badge ${event.type === 'absence' ? 'bg-secondary-subtle text-secondary fw-normal'
+            : event.type === 'grade' ? `text-bg-${gradeColor(event.value ?? Number(event.label))}` : 'text-bg-light border'}`;
           badge.textContent = event.label;
           badge.title = `${formatDate(event.date)}, урок ${event.lesson}${event.time ? `, ${event.time}` : ''}`;
           wrap.append(badge);
@@ -67,11 +75,16 @@
         if (!subject.events.length) wrap.textContent = '—';
         marks.append(wrap);
         row.append(name, marks);
-        for (const value of [subject.sum, subject.count,
-          subject.average === null ? '—' : subject.average.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), subject.absences]) {
+        for (const [index, value] of [subject.sum, subject.count,
+          subject.average === null ? '—' : subject.average.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), subject.absences].entries()) {
           const cell = document.createElement('td');
           cell.className = 'text-end';
-          cell.textContent = value;
+          if (index === 2 && subject.average !== null) {
+            const badge = document.createElement('span');
+            badge.className = `badge text-bg-${gradeColor(subject.average)}`;
+            badge.textContent = value;
+            cell.append(badge);
+          } else cell.textContent = value;
           row.append(cell);
         }
         rows.append(row);
